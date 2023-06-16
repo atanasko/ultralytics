@@ -199,6 +199,35 @@ class YOLODataset(BaseDataset):
         return new_batch
 
 
+class WodDataset(BaseDataset):
+    """
+    Dataset class for loading object detection and/or segmentation labels in YOLO format.
+
+    Args:
+        data (dict, optional): A dataset YAML dictionary. Defaults to None.
+        use_segments (bool, optional): If True, segmentation masks are used as labels. Defaults to False.
+        use_keypoints (bool, optional): If True, keypoints are used as labels. Defaults to False.
+
+    Returns:
+        (torch.utils.data.Dataset): A PyTorch dataset object that can be used for training an object detection model.
+    """
+    cache_version = '1.0.2'  # dataset labels *.cache version, >= 1.0.0 for YOLOv8
+    rand_interp_methods = [cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4]
+
+    def __init__(self, *args, data=None, use_segments=False, use_keypoints=False, **kwargs):
+        self.use_segments = use_segments
+        self.use_keypoints = use_keypoints
+        self.data = data
+        assert not (self.use_segments and self.use_keypoints), 'Can not use both segments and keypoints.'
+        super().__init__(*args, **kwargs)
+
+    def get_img_files(self, img_path):
+        pass
+
+    def get_labels(self):
+        pass
+
+
 # Classification dataloaders -------------------------------------------------------------------------------------------
 class ClassificationDataset(torchvision.datasets.ImageFolder):
     """

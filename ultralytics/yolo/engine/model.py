@@ -20,8 +20,11 @@ TASK_MAP = {
     'classify': [
         ClassificationModel, yolo.v8.classify.ClassificationTrainer, yolo.v8.classify.ClassificationValidator,
         yolo.v8.classify.ClassificationPredictor],
+    # 'detect': [
+    #     DetectionModel, yolo.v8.detect.DetectionTrainer, yolo.v8.detect.DetectionValidator,
+    #     yolo.v8.detect.DetectionPredictor],
     'detect': [
-        DetectionModel, yolo.v8.detect.DetectionTrainer, yolo.v8.detect.DetectionValidator,
+        DetectionModel, yolo.v8.detect.WodDetectionTrainer, yolo.v8.detect.DetectionValidator,
         yolo.v8.detect.DetectionPredictor],
     'segment': [
         SegmentationModel, yolo.v8.segment.SegmentationTrainer, yolo.v8.segment.SegmentationValidator,
