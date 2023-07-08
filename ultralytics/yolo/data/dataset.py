@@ -285,6 +285,7 @@ class WodDataset(BaseDataset):
         with ThreadPool(NUM_THREADS) as pool:
             total = len(self.context_names)
             pbar = tqdm(self.context_names, total=total, bar_format=TQDM_BAR_FORMAT, disable=LOCAL_RANK > 0)
+            idx = 0
             for context_name in pbar:
                 lidar_lidar_box_df = wod_reader.read_lidar_lidar_box_df(self.dataset_dir, context_name, self.laser_name)
                 lidar_calibration_df = wod_reader.read_lidar_calibration_df(self.dataset_dir, context_name, self.laser_name)
@@ -308,11 +309,11 @@ class WodDataset(BaseDataset):
                     # img = Image.fromarray(bev_img).convert('RGB')
 
                     if cache == 'disk':
-                        print()
-                        # b += self.npy_files[i].stat().st_size
+                        b += self.npy_files[i].stat().st_size
                     else:  # 'ram'
-                        self.ims[i], self.im_hw0[i], self.im_hw[i] = bev_img, (640, 640), (640, 640)  # im, hw_orig, hw_resized = load_image(self, i)
-                        b += self.ims[i].nbytes
+                        self.ims[idx], self.im_hw0[idx], self.im_hw[idx] = bev_img, (640, 640), (640, 640)  # im, hw_orig, hw_resized = load_image(self, i)
+                        b += self.ims[idx].nbytes
+                    idx += 1
                     pbar.desc = f'{self.prefix}Caching images ({b / gb:.1f}GB {cache})'
             pbar.close()
 
@@ -433,7 +434,7 @@ class WodDataset(BaseDataset):
             cls=np.array(lidar_box.type).reshape(len(lidar_box.type), 1),  # n, 1
             bboxes=np.array(bboxes),  # n, 4
             segments=[],
-            keypoints=[],
+            # keypoints=None,
             normalized=True,
             bbox_format='xywh')
 
@@ -581,10 +582,12 @@ class WodDataset(BaseDataset):
         # we can make it also support classification and semantic segmentation by add or remove some dict keys there.
         bboxes = label.pop('bboxes')
         segments = label.pop('segments')
-        keypoints = label.pop('keypoints', None)
+        # keypoints = label.pop('keypoints', None)
+        keypoints = None
         bbox_format = label.pop('bbox_format')
         normalized = label.pop('normalized')
-        label['instances'] = Instances(bboxes, segments, keypoints, bbox_format=bbox_format, normalized=normalized)
+        # label['instances'] = Instances(bboxes, segments, keypoints, bbox_format=bbox_format, normalized=normalized)
+        label['instances'] = Instances(bboxes, segments, bbox_format=bbox_format, normalized=normalized)
         return label
 
     def set_rectangle(self):
