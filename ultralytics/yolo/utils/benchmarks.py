@@ -21,6 +21,7 @@ TensorFlow Lite         | `tflite`                  | yolov8n.tflite
 TensorFlow Edge TPU     | `edgetpu`                 | yolov8n_edgetpu.tflite
 TensorFlow.js           | `tfjs`                    | yolov8n_web_model/
 PaddlePaddle            | `paddle`                  | yolov8n_paddle_model/
+NCNN                    | `ncnn`                    | yolov8n_ncnn_model/
 """
 
 import glob
@@ -33,6 +34,7 @@ import torch.cuda
 from tqdm import tqdm
 
 from ultralytics import YOLO
+from ultralytics.yolo.cfg import TASK2DATA, TASK2METRIC
 from ultralytics.yolo.engine.exporter import export_formats
 from ultralytics.yolo.utils import LINUX, LOGGER, MACOS, ROOT, SETTINGS
 from ultralytics.yolo.utils.checks import check_requirements, check_yolo
@@ -51,13 +53,13 @@ def benchmark(model=Path(SETTINGS['weights_dir']) / 'yolov8n.pt',
     Benchmark a YOLO model across different formats for speed and accuracy.
 
     Args:
-        model (Union[str, Path], optional): Path to the model file or directory. Default is
+        model (str | Path | optional): Path to the model file or directory. Default is
             Path(SETTINGS['weights_dir']) / 'yolov8n.pt'.
         imgsz (int, optional): Image size for the benchmark. Default is 160.
         half (bool, optional): Use half-precision for the model if True. Default is False.
         int8 (bool, optional): Use int8-precision for the model if True. Default is False.
         device (str, optional): Device to run the benchmark on, either 'cpu' or 'cuda'. Default is 'cpu'.
-        hard_fail (Union[bool, float], optional): If True or a float, assert benchmarks pass with given metric.
+        hard_fail (bool | float | optional): If True or a float, assert benchmarks pass with given metric.
             Default is False.
 
     Returns:
@@ -96,22 +98,16 @@ def benchmark(model=Path(SETTINGS['weights_dir']) / 'yolov8n.pt',
             emoji = '❎'  # indicates export succeeded
 
             # Predict
-            assert i not in (9, 10), 'inference not supported'  # Edge TPU and TF.js are unsupported
+            assert model.task != 'pose' or i != 7, 'GraphDef Pose inference is not supported'
+            assert i not in (9, 10, 12), 'inference not supported'  # Edge TPU, TF.js and NCNN are unsupported
             assert i != 5 or platform.system() == 'Darwin', 'inference only supported on macOS>=10.13'  # CoreML
             if not (ROOT / 'assets/bus.jpg').exists():
                 download(url='https://ultralytics.com/images/bus.jpg', dir=ROOT / 'assets')
             export.predict(ROOT / 'assets/bus.jpg', imgsz=imgsz, device=device, half=half)
 
             # Validate
-            if model.task == 'detect':
-                data, key = 'coco8.yaml', 'metrics/mAP50-95(B)'
-            elif model.task == 'segment':
-                data, key = 'coco8-seg.yaml', 'metrics/mAP50-95(M)'
-            elif model.task == 'classify':
-                data, key = 'imagenet100', 'metrics/accuracy_top5'
-            elif model.task == 'pose':
-                data, key = 'coco8-pose.yaml', 'metrics/mAP50-95(P)'
-
+            data = TASK2DATA[model.task]  # task to dataset, i.e. coco8.yaml for task=detect
+            key = TASK2METRIC[model.task]  # task to metric, i.e. metrics/mAP50-95(B) for task=detect
             results = export.val(data=data,
                                  batch=1,
                                  imgsz=imgsz,

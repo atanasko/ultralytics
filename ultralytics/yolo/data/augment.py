@@ -427,7 +427,7 @@ class RandomPerspective:
         """
         if self.pre_transform and 'mosaic_border' not in labels:
             labels = self.pre_transform(labels)
-            labels.pop('ratio_pad')  # do not need ratio pad
+        labels.pop('ratio_pad', None)  # do not need ratio pad
 
         img = labels['img']
         cls = labels['cls']
@@ -759,7 +759,7 @@ class Format:
         return masks, instances, cls
 
 
-def v8_transforms(dataset, imgsz, hyp):
+def v8_transforms(dataset, imgsz, hyp, stretch=False):
     """Convert images to a size suitable for YOLOv8 training."""
     pre_transform = Compose([
         Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic),
@@ -770,12 +770,12 @@ def v8_transforms(dataset, imgsz, hyp):
             scale=hyp.scale,
             shear=hyp.shear,
             perspective=hyp.perspective,
-            pre_transform=LetterBox(new_shape=(imgsz, imgsz)),
+            pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz)),
         )])
-    flip_idx = dataset.data.get('flip_idx', None)  # for keypoints augmentation
+    flip_idx = dataset.data.get('flip_idx', [])  # for keypoints augmentation
     if dataset.use_keypoints:
         kpt_shape = dataset.data.get('kpt_shape', None)
-        if flip_idx is None and hyp.fliplr > 0.0:
+        if len(flip_idx) == 0 and hyp.fliplr > 0.0:
             hyp.fliplr = 0.0
             LOGGER.warning("WARNING ⚠️ No 'flip_idx' array defined in data.yaml, setting augmentation 'fliplr=0.0'")
         elif flip_idx and (len(flip_idx) != kpt_shape[0]):
