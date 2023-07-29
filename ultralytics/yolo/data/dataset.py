@@ -226,20 +226,23 @@ class WodDataset(BaseDataset):
     cache_version = '1.0.2'  # dataset labels *.cache version, >= 1.0.0 for YOLOv8
     rand_interp_methods = [cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4]
 
-    def __init__(self, *args, data=None, use_segments=False, use_keypoints=False, **kwargs):
+    def __init__(self, *args, data=None, use_segments=False, use_keypoints=False, mode='', **kwargs):
         self.cfg = config.load()
         self.use_segments = use_segments
         self.use_keypoints = use_keypoints
         self.data = data
-        self.dataset_dir = str(data.get('path')) + "/training"
-        self.context_names = self.get_context_names(str(data.get('path')) + "/training")
+        # self.dataset_dir = str(data.get('path')) + "/training"
+        self.dataset_dir = str(data.get(mode))
+        self.context_names = self.get_context_names(self.dataset_dir)
         self.laser_name = 1
         assert not (self.use_segments and self.use_keypoints), 'Can not use both segments and keypoints.'
         super().__init__(*args, **kwargs)
 
     def get_context_names(self, dataset_dir):
-        return [os.path.splitext(os.path.basename(name))[0][len("training_lidar_"):]
-                for name in glob.glob(dataset_dir + "/lidar/*.*")]
+        # return [os.path.splitext(os.path.basename(name))[0][len("training_lidar_"):]
+        #         for name in glob.glob(dataset_dir + "/lidar/*.*")]
+        return [os.path.splitext(os.path.basename(name))[0] for name in glob.glob(dataset_dir + "/lidar/*.*")]
+
 
     def get_img_files(self, dataset_dir):
         """Read lidar file names"""
@@ -249,8 +252,9 @@ class WodDataset(BaseDataset):
             for p in dataset_dir if isinstance(dataset_dir, list) else [dataset_dir]:
                 p = Path(p)  # os-agnostic
                 if p.is_dir():  # dir
-                    context_names = [os.path.splitext(os.path.basename(name))[0][len("training_lidar_"):] for name in
-                         glob.glob(str(p / 'lidar' / '*.*'), recursive=True)]
+                    # context_names = [os.path.splitext(os.path.basename(name))[0][len("training_lidar_"):] for name in
+                    #      glob.glob(str(p / 'lidar' / '*.*'), recursive=True)]
+                    context_names = [os.path.splitext(os.path.basename(name))[0] for name in glob.glob(str(p / 'lidar' / '*.*'), recursive=True)]
                 else:
                     raise FileNotFoundError(f'{self.prefix}{p} does not exist')
             ##
@@ -501,7 +505,8 @@ class WodDataset(BaseDataset):
     def get_labels(self):
         """Returns dictionary of labels for WOD training."""
         # self.label_files = img2label_paths(self.im_files)
-        cache_path = Path(str(self.data.get('path')) + "/training/labels").with_suffix('.cache')
+        # cache_path = Path(str(self.data.get('path')) + "/training/labels").with_suffix('.cache')
+        cache_path = Path(str(self.dataset_dir) + "/labels").with_suffix('.cache')
         try:
             import gc
             gc.disable()  # reduce pickle load time https://github.com/ultralytics/ultralytics/pull/1585

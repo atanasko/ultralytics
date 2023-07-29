@@ -16,7 +16,7 @@ path: wod/data  # dataset root dir
 #val: validation # val images (relative to 'path') 128 images
 train: training # train images (relative to 'path') 128 images
 test: training # test images (optional)
-val: training # val images (relative to 'path') 128 images
+val: validation # val images (relative to 'path') 128 images
 
 
 # Classes

@@ -136,7 +136,7 @@ dmypy.json
 datasets/
 runs/
 wandb/
-
+ultralytics/wod/data
 .DS_Store
 
 # Neural Network weights -----------------------------------------------------------------------------------------------

@@ -5,7 +5,8 @@ from waymo_open_dataset import v2
 
 def read_df(dataset_dir: str, context_name: str, tag: str) -> dd.DataFrame:
     """Creates a Dask DataFrame for the component specified by its tag."""
-    paths = tf.io.gfile.glob(f'{dataset_dir}/{tag}/training_{tag}_{context_name}.parquet')
+    # paths = tf.io.gfile.glob(f'{dataset_dir}/{tag}/training_{tag}_{context_name}.parquet')
+    paths = tf.io.gfile.glob(f'{dataset_dir}/{tag}/{context_name}.parquet')
     return dd.read_parquet(paths)
 
 

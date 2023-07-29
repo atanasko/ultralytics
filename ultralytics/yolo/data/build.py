@@ -93,11 +93,12 @@ def build_yolo_dataset(cfg, img_path, batch, data, mode='train', rect=False, str
 def build_wod_dataset(cfg, img_path, batch, data, mode='train', rect=False, stride=32):
     """Build WOD Dataset"""
     return WodDataset(
+        mode=mode,
         img_path=img_path,
         imgsz=cfg.imgsz,
         batch_size=batch,
-        augment=mode == 'train',  # augmentation
-        # augment=False,  # augmentation
+        # augment=mode == 'train',  # augmentation
+        augment=False,  # augmentation
         hyp=cfg,  # TODO: probably add a get_hyps_from_cfg function
         rect=cfg.rect or rect,  # rectangular batches
         cache=cfg.cache or None,
