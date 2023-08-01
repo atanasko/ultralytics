@@ -1,7 +1,7 @@
 ---
 comments: true
-description: Validate and improve YOLOv8n model accuracy on COCO128 and other datasets using hyperparameter & configuration tuning, in Val mode.
-keywords: Ultralytics, YOLO, YOLOv8, Val, Validation, Hyperparameters, Performance, Accuracy, Generalization, COCO, Export Formats, PyTorch
+description: 'Guide for Validating YOLOv8 Models: Learn how to evaluate the performance of your YOLO models using validation settings and metrics with Python and CLI examples.'
+keywords: Ultralytics, YOLO Docs, YOLOv8, validation, model evaluation, hyperparameters, accuracy, metrics, Python, CLI
 ---
 
 <img width="1024" src="https://github.com/ultralytics/assets/raw/main/yolov8/banner-integrations.png">
@@ -19,14 +19,14 @@ Validate trained YOLOv8n model accuracy on the COCO128 dataset. No argument need
 !!! example ""
 
     === "Python"
-    
+
         ```python
         from ultralytics import YOLO
-        
+
         # Load a model
         model = YOLO('yolov8n.pt')  # load an official model
         model = YOLO('path/to/best.pt')  # load a custom model
-        
+
         # Validate the model
         metrics = model.val()  # no arguments needed, dataset and settings remembered
         metrics.box.map    # map50-95
@@ -35,7 +35,7 @@ Validate trained YOLOv8n model accuracy on the COCO128 dataset. No argument need
         metrics.box.maps   # a list contains map50-95 of each category
         ```
     === "CLI"
-    
+
         ```bash
         yolo detect val model=yolov8n.pt  # val official model
         yolo detect val model=path/to/best.pt  # val custom model
@@ -48,7 +48,7 @@ Validation settings for YOLO models refer to the various hyperparameters and con
 | Key           | Value   | Description                                                        |
 |---------------|---------|--------------------------------------------------------------------|
 | `data`        | `None`  | path to data file, i.e. coco128.yaml                               |
-| `imgsz`       | `640`   | image size as scalar or (h, w) list, i.e. (640, 480)               |
+| `imgsz`       | `640`   | size of input images as integer                                    |
 | `batch`       | `16`    | number of images per batch (-1 for AutoBatch)                      |
 | `save_json`   | `False` | save results to JSON file                                          |
 | `save_hybrid` | `False` | save hybrid version of labels (labels + additional predictions)    |

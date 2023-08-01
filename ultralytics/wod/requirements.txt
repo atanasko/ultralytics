@@ -1,7 +1,0 @@
-tensorflow
-dask
-pandas
-# export PATH=$PATH:/usr/sbin
-OpenEXR
-waymo-open-dataset-tf-2-11-0==1.5.2
-easydict
