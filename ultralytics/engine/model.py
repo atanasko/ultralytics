@@ -87,7 +87,7 @@ class Model:
         suffix = Path(model).suffix
         if not suffix and Path(model).stem in GITHUB_ASSET_STEMS:
             model, suffix = Path(model).with_suffix('.pt'), '.pt'  # add suffix, i.e. yolov8n -> yolov8n.pt
-        if suffix == '.yaml':
+        if suffix in ('.yaml', '.yml'):
             self._new(model, task)
         else:
             self._load(model, task)
@@ -319,7 +319,7 @@ class Model:
             half=overrides['half'],
             int8=overrides['int8'],
             device=overrides['device'],
-            verbose=overrides['verbose'])
+            verbose=kwargs.get('verbose'))
 
     def export(self, **kwargs):
         """
