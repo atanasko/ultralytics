@@ -55,12 +55,14 @@ class Predictor(BasePredictor):
         return img
 
     def pre_transform(self, im):
-        """Pre-transform input image before inference.
+        """
+        Pre-transform input image before inference.
 
         Args:
             im (List(np.ndarray)): (N, 3, h, w) for tensor, [(h, w, 3) x N] for list.
 
-        Return: A list of transformed imgs.
+        Returns:
+            (list): A list of transformed images.
         """
         assert len(im) == 1, 'SAM model has not supported batch inference yet!'
         return [LetterBox(self.args.imgsz, auto=False, center=False)(image=x) for x in im]
@@ -310,7 +312,7 @@ class Predictor(BasePredictor):
         self.done_warmup = True
 
     def postprocess(self, preds, img, orig_imgs):
-        """Postprocesses inference output predictions to create detection masks for objects."""
+        """Post-processes inference output predictions to create detection masks for objects."""
         # (N, 1, H, W), (N, 1)
         pred_masks, pred_scores = preds[:2]
         pred_bboxes = preds[2] if self.segment_all else None

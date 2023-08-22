@@ -13,7 +13,7 @@ import requests
 import torch
 from tqdm import tqdm
 
-from ultralytics.utils import LOGGER, checks, clean_url, emojis, is_online, url2file
+from ultralytics.utils import LOGGER, TQDM_BAR_FORMAT, checks, clean_url, emojis, is_online, url2file
 
 GITHUB_ASSET_NAMES = [f'yolov8{k}{suffix}.pt' for k in 'nsmlx' for suffix in ('', '6', '-cls', '-seg', '-pose')] + \
                      [f'yolov5{k}u.pt' for k in 'nsmlx'] + \
@@ -39,6 +39,31 @@ def is_url(url, check=True):
     return False
 
 
+def delete_dsstore(path):
+    """
+    Deletes all ".DS_store" files under a specified directory.
+
+    Args:
+        path (str, optional): The directory path where the ".DS_store" files should be deleted.
+
+    Example:
+        ```python
+        from ultralytics.data.utils import delete_dsstore
+
+        delete_dsstore('path/to/dir')
+        ```
+
+    Note:
+        ".DS_store" files are created by the Apple operating system and contain metadata about folders and files. They
+        are hidden system files and can cause issues when transferring files between different operating systems.
+    """
+    # Delete Apple .DS_store files
+    files = list(Path(path).rglob('.DS_store'))
+    LOGGER.info(f'Deleting *.DS_store files: {files}')
+    for f in files:
+        f.unlink()
+
+
 def zip_directory(directory, compress=True, exclude=('.DS_Store', '__MACOSX'), progress=True):
     """
     Zips the contents of a directory, excluding files containing strings in the exclude list.
@@ -62,12 +87,13 @@ def zip_directory(directory, compress=True, exclude=('.DS_Store', '__MACOSX'), p
     """
     from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
+    delete_dsstore(directory)
     directory = Path(directory)
     if not directory.is_dir():
         raise FileNotFoundError(f"Directory '{directory}' does not exist.")
 
     # Unzip with progress bar
-    files_to_zip = [f for f in directory.rglob('*') if f.is_file() and not any(x in f.name for x in exclude)]
+    files_to_zip = [f for f in directory.rglob('*') if f.is_file() and all(x not in f.name for x in exclude)]
     zip_file = directory.with_suffix('.zip')
     compression = ZIP_DEFLATED if compress else ZIP_STORED
     with ZipFile(zip_file, 'w', compression) as f:
@@ -117,18 +143,20 @@ def unzip_file(file, path=None, exclude=('.DS_Store', '__MACOSX'), exist_ok=Fals
         files = [f for f in zipObj.namelist() if all(x not in f for x in exclude)]
         top_level_dirs = {Path(f).parts[0] for f in files}
 
-        if len(top_level_dirs) > 1 or not files[0].endswith('/'):
-            path = Path(path) / Path(file).stem  # define new unzip directory
+        if len(top_level_dirs) > 1 or not files[0].endswith('/'):  # zip has multiple files at top level
+            path = extract_path = Path(path) / Path(file).stem  # i.e. ../datasets/coco8
+        else:  # zip has 1 top-level directory
+            extract_path = path  # i.e. ../datasets
+            path = Path(path) / list(top_level_dirs)[0]  # i.e. ../datasets/coco8
 
         # Check if destination directory already exists and contains files
-        extract_path = Path(path) / list(top_level_dirs)[0]
-        if extract_path.exists() and any(extract_path.iterdir()) and not exist_ok:
+        if path.exists() and any(path.iterdir()) and not exist_ok:
             # If it exists and is not empty, return the path without unzipping
             LOGGER.info(f'Skipping {file} unzip (already unzipped)')
             return path
 
         for f in tqdm(files, desc=f'Unzipping {file} to {Path(path).resolve()}...', unit='file', disable=not progress):
-            zipObj.extract(f, path=path)
+            zipObj.extract(f, path=extract_path)
 
     return path  # return unzip dir
 
@@ -157,11 +185,9 @@ def check_disk_space(url='https://ultralytics.com/assets/coco128.zip', sf=1.5, h
                 f'Please free {data * sf - free:.1f} GB additional disk space and try again.')
         if hard:
             raise MemoryError(text)
-        else:
-            LOGGER.warning(text)
-            return False
+        LOGGER.warning(text)
+        return False
 
-            # Pass if error
     return True
 
 
@@ -186,21 +212,18 @@ def get_google_drive_file_info(link):
     """
     file_id = link.split('/d/')[1].split('/view')[0]
     drive_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+    filename = None
 
     # Start session
-    filename = None
     with requests.Session() as session:
         response = session.get(drive_url, stream=True)
         if 'quota exceeded' in str(response.content.lower()):
             raise ConnectionError(
                 emojis(f'❌  Google Drive file download quota exceeded. '
                        f'Please try again later or download this file manually at {link}.'))
-        token = None
-        for key, value in response.cookies.items():
-            if key.startswith('download_warning'):
-                token = value
-        if token:
-            drive_url = f'https://drive.google.com/uc?export=download&confirm={token}&id={file_id}'
+        for k, v in response.cookies.items():
+            if k.startswith('download_warning'):
+                drive_url += f'&confirm={v}'  # v is token
         cd = response.headers.get('content-disposition')
         if cd:
             filename = re.findall('filename="(.+)"', cd)[0]
@@ -259,7 +282,6 @@ def safe_download(url,
                     if method == 'torch':
                         torch.hub.download_url_to_file(url, f, progress=progress)
                     else:
-                        from ultralytics.utils import TQDM_BAR_FORMAT
                         with request.urlopen(url) as response, tqdm(total=int(response.getheader('Content-Length', 0)),
                                                                     desc=desc,
                                                                     disable=not progress,
@@ -305,6 +327,9 @@ def get_github_assets(repo='ultralytics/assets', version='latest', retry=False):
     r = requests.get(url)  # github api
     if r.status_code != 200 and retry:
         r = requests.get(url)  # try again
+    if r.status_code != 200:
+        LOGGER.warning(f'⚠️ GitHub assets check failure for {url}: {r.status_code} {r.reason}')
+        return '', []
     data = r.json()
     return data['tag_name'], [x['name'] for x in data['assets']]  # tag, assets
 
