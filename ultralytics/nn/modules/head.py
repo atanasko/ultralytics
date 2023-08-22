@@ -110,24 +110,27 @@ class Segment(Detect):
 class OBB(Detect):
     """ YOLOv8 OBB detection head for detection with rotation models """
 
-    def __init__(self, nc=80, nc_theta=180, ch=()):
+    def __init__(self, nc=80, ne=1, ch=()):
         super().__init__(nc, ch)
-        self.nc_theta = nc_theta
-        self.no = nc + self.reg_max * 4 + self.nc_theta
+        self.ne = ne  # number of extra parameters
         self.detect = Detect.forward
 
-        c4 = max(ch[0], self.nc_theta)
-        self.cv4 = nn.ModuleList(
-            nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nc_theta, 1)) for x in ch)
+        c4 = max(ch[0] // 4, self.ne)
+        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.ne, 1)) for x in ch)
 
     def forward(self, x):
-        bs = x[0].shape[0]
-
-        theta = torch.cat([self.cv4[i](x[i]).view(bs, self.no, -1) for i in range(self.nl)], -1)
+        bs = x[0].shape[0]  # batch size
+        theta = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2)  # OBB theta logits
         x = self.detect(self, x)
         if self.training:
             return x, theta
-        return torch.cat([x, theta], 1) if self.export else (torch.cat([x[0], theta], 1), (x[1], theta))
+        degrees = self.logits2degrees(theta)  # 0-1 theta to -180 to 180 degrees
+        return torch.cat([x, degrees], 1) if self.export else (torch.cat([x[0], degrees], 1), (x[1], theta))
+
+    @staticmethod
+    def logits2degrees(x):
+        """Convert 0-1 theta to -180 to +180 degrees. Overlap from -216 to +216 degrees to avoid edge effects."""
+        return (x.sigmoid() * 1.2 - 0.6) * 360
 
 
 class Pose(Detect):
