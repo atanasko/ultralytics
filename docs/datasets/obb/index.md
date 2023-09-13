@@ -1,12 +1,12 @@
 ---
 comments: true
-description: Dive deep into various oriented bounding box (OBB) dataset formats compatible with the Ultralytics YOLO model. Grasp the nuances of using and converting datasets to this format.
+description: Dive deep into various oriented bounding box (OBB) dataset formats compatible with Ultralytics YOLO models. Grasp the nuances of using and converting datasets to this format.
 keywords: Ultralytics, YOLO, oriented bounding boxes, OBB, dataset formats, label formats, DOTA v2, data conversion
 ---
 
-# Oriented Bounding Box Datasets Overview
+# Oriented Bounding Box (OBB) Datasets Overview
 
-Training a precise object detection model with oriented bounding boxes (OBB) requires a thorough dataset. This guide elucidates the various OBB dataset formats compatible with the Ultralytics YOLO model, offering insights into their structure, application, and methods for format conversions.
+Training a precise object detection model with oriented bounding boxes (OBB) requires a thorough dataset. This guide explains the various OBB dataset formats compatible with Ultralytics YOLO models, offering insights into their structure, application, and methods for format conversions.
 
 ## Supported OBB Dataset Formats
 
@@ -69,11 +69,15 @@ For those looking to introduce their own datasets with oriented bounding boxes, 
 
 Transitioning labels from the DOTA dataset format to the YOLO OBB format can be achieved with this script:
 
-```python
-from ultralytics.data.converter import convert_dota_to_yolo_obb
+!!! example ""
 
-convert_dota_to_yolo_obb('path/to/DOTA')
-```
+    === "Python"
+
+        ```python
+        from ultralytics.data.converter import convert_dota_to_yolo_obb
+        
+        convert_dota_to_yolo_obb('path/to/DOTA')
+        ```
 
 This conversion mechanism is instrumental for datasets in the DOTA format, ensuring alignment with the Ultralytics YOLO OBB format.
 

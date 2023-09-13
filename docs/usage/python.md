@@ -93,7 +93,7 @@ of the model to improve its performance.
           from ultralytics import YOLO
 
           model = YOLO("model.pt")
-          # It'll use the data yaml file in model.pt if you don't set data.
+          # It'll use the data YAML file in model.pt if you don't set data.
           model.val()
           # or you can set the data you want to val
           model.val(data='coco128.yaml')
@@ -220,8 +220,8 @@ for applications such as surveillance systems or self-driving cars.
         model = YOLO('path/to/best.pt')  # load a custom model
 
         # Track with the model
-        results = model.track(source="https://youtu.be/Zgi9g1ksQHc", show=True)
-        results = model.track(source="https://youtu.be/Zgi9g1ksQHc", show=True, tracker="bytetrack.yaml")
+        results = model.track(source="https://youtu.be/LNwODJXcvt4", show=True)
+        results = model.track(source="https://youtu.be/LNwODJXcvt4", show=True, tracker="bytetrack.yaml")
         ```
 
 [Track Examples](../modes/track.md){ .md-button .md-button--primary}

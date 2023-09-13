@@ -6,17 +6,31 @@ import numpy as np
 import torch
 
 from ultralytics.models.yolo.detect import DetectionValidator
-from ultralytics.utils import DEFAULT_CFG, LOGGER, ops
+from ultralytics.utils import LOGGER, ops
 from ultralytics.utils.checks import check_requirements
 from ultralytics.utils.metrics import OKS_SIGMA, PoseMetrics, box_iou, kpt_iou
 from ultralytics.utils.plotting import output_to_target, plot_images
 
 
 class PoseValidator(DetectionValidator):
+    """
+    A class extending the DetectionValidator class for validation based on a pose model.
+
+    Example:
+        ```python
+        from ultralytics.models.yolo.pose import PoseValidator
+
+        args = dict(model='yolov8n-pose.pt', data='coco8-pose.yaml')
+        validator = PoseValidator(args=args)
+        validator()
+        ```
+    """
 
     def __init__(self, dataloader=None, save_dir=None, pbar=None, args=None, _callbacks=None):
         """Initialize a 'PoseValidator' object with custom parameters and assigned attributes."""
         super().__init__(dataloader, save_dir, pbar, args, _callbacks)
+        self.sigma = None
+        self.kpt_shape = None
         self.args.task = 'pose'
         self.metrics = PoseMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
         if isinstance(self.args.device, str) and self.args.device.lower() == 'mps':
@@ -112,14 +126,19 @@ class PoseValidator(DetectionValidator):
 
     def _process_batch(self, detections, labels, pred_kpts=None, gt_kpts=None):
         """
-        Return correct prediction matrix
-        Arguments:
-            detections (array[N, 6]), x1, y1, x2, y2, conf, class
-            labels (array[M, 5]), class, x1, y1, x2, y2
-            pred_kpts (array[N, 51]), 51 = 17 * 3
-            gt_kpts (array[N, 51])
+        Return correct prediction matrix.
+
+        Args:
+            detections (torch.Tensor): Tensor of shape [N, 6] representing detections.
+                Each detection is of the format: x1, y1, x2, y2, conf, class.
+            labels (torch.Tensor): Tensor of shape [M, 5] representing labels.
+                Each label is of the format: class, x1, y1, x2, y2.
+            pred_kpts (torch.Tensor, optional): Tensor of shape [N, 51] representing predicted keypoints.
+                51 corresponds to 17 keypoints each with 3 values.
+            gt_kpts (torch.Tensor, optional): Tensor of shape [N, 51] representing ground truth keypoints.
+
         Returns:
-            correct (array[N, 10]), for 10 IoU levels
+            torch.Tensor: Correct prediction matrix of shape [N, 10] for 10 IoU levels.
         """
         if pred_kpts is not None and gt_kpts is not None:
             # `0.53` is from https://github.com/jin-s13/xtcocoapi/blob/master/xtcocotools/cocoeval.py#L384
@@ -194,21 +213,3 @@ class PoseValidator(DetectionValidator):
             except Exception as e:
                 LOGGER.warning(f'pycocotools unable to run: {e}')
         return stats
-
-
-def val(cfg=DEFAULT_CFG, use_python=False):
-    """Performs validation on YOLO model using given data."""
-    model = cfg.model or 'yolov8n-pose.pt'
-    data = cfg.data or 'coco8-pose.yaml'
-
-    args = dict(model=model, data=data)
-    if use_python:
-        from ultralytics import YOLO
-        YOLO(model).val(**args)
-    else:
-        validator = PoseValidator(args=args)
-        validator(model=args['model'])
-
-
-if __name__ == '__main__':
-    val()

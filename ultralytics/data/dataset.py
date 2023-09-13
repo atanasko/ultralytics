@@ -1,5 +1,5 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
-
+import contextlib
 from itertools import repeat
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
@@ -8,20 +8,23 @@ import cv2
 import numpy as np
 import torch
 import torchvision
-from tqdm import tqdm
-import psutil
 
-import glob
+from ultralytics.utils import LOCAL_RANK, NUM_THREADS, TQDM, colorstr, is_dir_writeable
+
+from .augment import Compose, Format, Instances, LetterBox, classify_albumentations, classify_transforms, v8_transforms
+from .base import BaseDataset
+from .utils import HELP_URL, LOGGER, get_hash, img2label_paths, verify_image, verify_image_label
+
 import os
+import glob
+import psutil
 from waymo_open_dataset import v2
 from waymo_open_dataset.v2.perception.utils import lidar_utils as _lidar_utils
 import ultralytics.datasets.wod.utils.wod_reader as wod_reader
 import ultralytics.datasets.wod.config.config as config
 
-from ultralytics.utils import LOCAL_RANK, NUM_THREADS, TQDM_BAR_FORMAT, is_dir_writeable
-from .augment import Compose, Format, Instances, LetterBox, classify_albumentations, classify_transforms, v8_transforms
-from .base import BaseDataset
-from .utils import HELP_URL, LOGGER, get_hash, img2label_paths, verify_image_label
+# Ultralytics dataset *.cache version, >= 1.0.0 for YOLOv8
+DATASET_CACHE_VERSION = '1.0.3'
 
 
 class YOLODataset(BaseDataset):
@@ -36,8 +39,6 @@ class YOLODataset(BaseDataset):
     Returns:
         (torch.utils.data.Dataset): A PyTorch dataset object that can be used for training an object detection model.
     """
-    cache_version = '1.0.2'  # dataset labels *.cache version, >= 1.0.0 for YOLOv8
-    rand_interp_methods = [cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4]
 
     def __init__(self, *args, data=None, use_segments=False, use_keypoints=False, **kwargs):
         self.use_segments = use_segments
@@ -66,7 +67,7 @@ class YOLODataset(BaseDataset):
                                 iterable=zip(self.im_files, self.label_files, repeat(self.prefix),
                                              repeat(self.use_keypoints), repeat(len(self.data['names'])), repeat(nkpt),
                                              repeat(ndim)))
-            pbar = tqdm(results, desc=desc, total=total, bar_format=TQDM_BAR_FORMAT)
+            pbar = TQDM(results, desc=desc, total=total)
             for im_file, lb, shape, segments, keypoint, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
                 nf += nf_f
@@ -95,15 +96,7 @@ class YOLODataset(BaseDataset):
         x['hash'] = get_hash(self.label_files + self.im_files)
         x['results'] = nf, nm, ne, nc, len(self.im_files)
         x['msgs'] = msgs  # warnings
-        x['version'] = self.cache_version  # cache version
-        if is_dir_writeable(path.parent):
-            if path.exists():
-                path.unlink()  # remove *.cache file if exists
-            np.save(str(path), x)  # save cache for next time
-            path.with_suffix('.cache.npy').rename(path)  # remove .npy suffix
-            LOGGER.info(f'{self.prefix}New cache created: {path}')
-        else:
-            LOGGER.warning(f'{self.prefix}WARNING ⚠️ Cache directory {path.parent} is not writeable, cache not saved.')
+        save_dataset_cache_file(self.prefix, path, x)
         return x
 
     def get_labels(self):
@@ -111,11 +104,8 @@ class YOLODataset(BaseDataset):
         self.label_files = img2label_paths(self.im_files)
         cache_path = Path(self.label_files[0]).parent.with_suffix('.cache')
         try:
-            import gc
-            gc.disable()  # reduce pickle load time https://github.com/ultralytics/ultralytics/pull/1585
-            cache, exists = np.load(str(cache_path), allow_pickle=True).item(), True  # load dict
-            gc.enable()
-            assert cache['version'] == self.cache_version  # matches current version
+            cache, exists = load_dataset_cache_file(cache_path), True  # attempt to load a *.cache file
+            assert cache['version'] == DATASET_CACHE_VERSION  # matches current version
             assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
         except (FileNotFoundError, AssertionError, AttributeError):
             cache, exists = self.cache_labels(cache_path), False  # run cache ops
@@ -124,16 +114,15 @@ class YOLODataset(BaseDataset):
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
         if exists and LOCAL_RANK in (-1, 0):
             d = f'Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt'
-            tqdm(None, desc=self.prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
+            TQDM(None, desc=self.prefix + d, total=n, initial=n)  # display results
             if cache['msgs']:
                 LOGGER.info('\n'.join(cache['msgs']))  # display warnings
-        if nf == 0:  # number of labels found
-            raise FileNotFoundError(f'{self.prefix}No labels found in {cache_path}, can not start training. {HELP_URL}')
 
         # Read cache
         [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
         labels = cache['labels']
-        assert len(labels), f'No valid labels found, please check your dataset. {HELP_URL}'
+        if not labels:
+            LOGGER.warning(f'WARNING ⚠️ No images found in {cache_path}, training may not work correctly. {HELP_URL}')
         self.im_files = [lb['im_file'] for lb in labels]  # update im_files
 
         # Check if the dataset is all boxes or all segments
@@ -147,10 +136,9 @@ class YOLODataset(BaseDataset):
             for lb in labels:
                 lb['segments'] = []
         if len_cls == 0:
-            raise ValueError(f'All labels empty in {cache_path}, can not start training without labels. {HELP_URL}')
+            LOGGER.warning(f'WARNING ⚠️ No labels found in {cache_path}, training may not work correctly. {HELP_URL}')
         return labels
 
-    # TODO: use hyp config to set all these augmentations
     def build_transforms(self, hyp=None):
         """Builds and appends transforms to the list."""
         if self.augment:
@@ -240,7 +228,6 @@ class WodDataset(BaseDataset):
         #         for name in glob.glob(dataset_dir + "/lidar/*.*")]
         return [os.path.splitext(os.path.basename(name))[0] for name in glob.glob(dataset_dir + "/lidar/*.*")]
 
-
     def get_img_files(self, dataset_dir):
         """Read lidar file names"""
         try:
@@ -251,7 +238,8 @@ class WodDataset(BaseDataset):
                 if p.is_dir():  # dir
                     # context_names = [os.path.splitext(os.path.basename(name))[0][len("training_lidar_"):] for name in
                     #      glob.glob(str(p / 'lidar' / '*.*'), recursive=True)]
-                    context_names = [os.path.splitext(os.path.basename(name))[0] for name in glob.glob(str(p / 'lidar' / '*.*'), recursive=True)]
+                    context_names = [os.path.splitext(os.path.basename(name))[0] for name in
+                                     glob.glob(str(p / 'lidar' / '*.*'), recursive=True)]
                 else:
                     raise FileNotFoundError(f'{self.prefix}{p} does not exist')
             ##
@@ -260,7 +248,8 @@ class WodDataset(BaseDataset):
 
                 for i, (_, r) in enumerate(lidar_lidar_box_df.iterrows()):
                     lidar = v2.LiDARComponent.from_dict(r)
-                    im_files.append(lidar.key.segment_context_name + "#" + str(lidar.key.laser_name) + "#" + str(lidar.key.frame_timestamp_micros))
+                    im_files.append(lidar.key.segment_context_name + "#" + str(lidar.key.laser_name) + "#" + str(
+                        lidar.key.frame_timestamp_micros))
             ##
             assert im_files, f'{self.prefix}No images found'
         except Exception as e:
@@ -285,11 +274,12 @@ class WodDataset(BaseDataset):
         b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
         with ThreadPool(NUM_THREADS) as pool:
             total = len(self.context_names)
-            pbar = tqdm(self.context_names, total=total, bar_format=TQDM_BAR_FORMAT, disable=LOCAL_RANK > 0)
+            pbar = TQDM(self.context_names, total=total, disable=LOCAL_RANK > 0)
             idx = 0
             for context_name in pbar:
                 lidar_lidar_box_df = wod_reader.read_lidar_lidar_box_df(self.dataset_dir, context_name, self.laser_name)
-                lidar_calibration_df = wod_reader.read_lidar_calibration_df(self.dataset_dir, context_name, self.laser_name)
+                lidar_calibration_df = wod_reader.read_lidar_calibration_df(self.dataset_dir, context_name,
+                                                                            self.laser_name)
                 lidar_pose_df = wod_reader.read_lidar_pose_df(self.dataset_dir, context_name, self.laser_name)
                 vehicle_pose_df = wod_reader.read_vehicle_pose_df(self.dataset_dir, context_name)
 
@@ -312,7 +302,8 @@ class WodDataset(BaseDataset):
                     if cache == 'disk':
                         b += self.npy_files[i].stat().st_size
                     else:  # 'ram'
-                        self.ims[idx], self.im_hw0[idx], self.im_hw[idx] = bev_img, (640, 640), (640, 640)  # im, hw_orig, hw_resized = load_image(self, i)
+                        self.ims[idx], self.im_hw0[idx], self.im_hw[idx] = bev_img, (640, 640), (
+                        640, 640)  # im, hw_orig, hw_resized = load_image(self, i)
                         b += self.ims[idx].nbytes
                     idx += 1
                     pbar.desc = f'{self.prefix}Caching images ({b / gb:.1f}GB {cache})'
@@ -428,7 +419,8 @@ class WodDataset(BaseDataset):
 
             bboxes.append([x, y, size_x, size_y])
         return dict(
-            im_file=lidar.key.segment_context_name + "#" + str(lidar.key.laser_name) + "#" + str(lidar.key.frame_timestamp_micros),
+            im_file=lidar.key.segment_context_name + "#" + str(lidar.key.laser_name) + "#" + str(
+                lidar.key.frame_timestamp_micros),
             shape=(self.cfg.bev_width, self.cfg.bev_height),
             ori_shape=(self.cfg.bev_width, self.cfg.bev_height),
             resized_shape=(self.cfg.bev_width, self.cfg.bev_height),
@@ -455,10 +447,11 @@ class WodDataset(BaseDataset):
             raise ValueError("'kpt_shape' in data.yaml missing or incorrect. Should be a list with [number of "
                              "keypoints, number of dims (2 for x,y or 3 for x,y,visible)], i.e. 'kpt_shape: [17, 3]'")
         with ThreadPool(NUM_THREADS) as pool:
-            pbar = tqdm(self.context_names, desc=desc, total=total, bar_format=TQDM_BAR_FORMAT)
+            pbar = TQDM(self.context_names, desc=desc, total=total)
             for context_name in pbar:
                 lidar_lidar_box_df = wod_reader.read_lidar_lidar_box_df(self.dataset_dir, context_name, self.laser_name)
-                lidar_calibration_df = wod_reader.read_lidar_calibration_df(self.dataset_dir, context_name, self.laser_name)
+                lidar_calibration_df = wod_reader.read_lidar_calibration_df(self.dataset_dir, context_name,
+                                                                            self.laser_name)
                 lidar_pose_df = wod_reader.read_lidar_pose_df(self.dataset_dir, context_name, self.laser_name)
                 vehicle_pose_df = wod_reader.read_vehicle_pose_df(self.dataset_dir, context_name)
 
@@ -518,7 +511,7 @@ class WodDataset(BaseDataset):
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
         if exists and LOCAL_RANK in (-1, 0):
             d = f'Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt'
-            tqdm(None, desc=self.prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
+            TQDM(None, desc=self.prefix + d, total=n, initial=n)  # display cache results
             if cache['msgs']:
                 LOGGER.info('\n'.join(cache['msgs']))  # display warnings
         if nf == 0:  # number of labels found
@@ -653,7 +646,7 @@ class ClassificationDataset(torchvision.datasets.ImageFolder):
         album_transforms (callable, optional): Albumentations transforms applied to the dataset if augment is True.
     """
 
-    def __init__(self, root, args, augment=False, cache=False):
+    def __init__(self, root, args, augment=False, cache=False, prefix=''):
         """
         Initialize YOLO object with root, image size, augmentations, and cache settings.
 
@@ -666,8 +659,10 @@ class ClassificationDataset(torchvision.datasets.ImageFolder):
         super().__init__(root=root)
         if augment and args.fraction < 1.0:  # reduce training fraction
             self.samples = self.samples[:round(len(self.samples) * args.fraction)]
+        self.prefix = colorstr(f'{prefix}: ') if prefix else ''
         self.cache_ram = cache is True or cache == 'ram'
         self.cache_disk = cache == 'disk'
+        self.samples = self.verify_images()  # filter out bad images
         self.samples = [list(x) + [Path(x[0]).with_suffix('.npy'), None] for x in self.samples]  # file, index, npy, im
         self.torch_transforms = classify_transforms(args.imgsz)
         self.album_transforms = classify_albumentations(
@@ -690,7 +685,7 @@ class ClassificationDataset(torchvision.datasets.ImageFolder):
             im = self.samples[i][3] = cv2.imread(f)
         elif self.cache_disk:
             if not fn.exists():  # load npy
-                np.save(fn.as_posix(), cv2.imread(f))
+                np.save(fn.as_posix(), cv2.imread(f), allow_pickle=False)
             im = np.load(fn)
         else:  # read image
             im = cv2.imread(f)  # BGR
@@ -702,6 +697,67 @@ class ClassificationDataset(torchvision.datasets.ImageFolder):
 
     def __len__(self) -> int:
         return len(self.samples)
+
+    def verify_images(self):
+        """Verify all images in dataset."""
+        desc = f'{self.prefix}Scanning {self.root}...'
+        path = Path(self.root).with_suffix('.cache')  # *.cache file path
+
+        with contextlib.suppress(FileNotFoundError, AssertionError, AttributeError):
+            cache = load_dataset_cache_file(path)  # attempt to load a *.cache file
+            assert cache['version'] == DATASET_CACHE_VERSION  # matches current version
+            assert cache['hash'] == get_hash([x[0] for x in self.samples])  # identical hash
+            nf, nc, n, samples = cache.pop('results')  # found, missing, empty, corrupt, total
+            if LOCAL_RANK in (-1, 0):
+                d = f'{desc} {nf} images, {nc} corrupt'
+                TQDM(None, desc=d, total=n, initial=n)
+                if cache['msgs']:
+                    LOGGER.info('\n'.join(cache['msgs']))  # display warnings
+            return samples
+
+        # Run scan if *.cache retrieval failed
+        nf, nc, msgs, samples, x = 0, 0, [], [], {}
+        with ThreadPool(NUM_THREADS) as pool:
+            results = pool.imap(func=verify_image, iterable=zip(self.samples, repeat(self.prefix)))
+            pbar = TQDM(results, desc=desc, total=len(self.samples))
+            for sample, nf_f, nc_f, msg in pbar:
+                if nf_f:
+                    samples.append(sample)
+                if msg:
+                    msgs.append(msg)
+                nf += nf_f
+                nc += nc_f
+                pbar.desc = f'{desc} {nf} images, {nc} corrupt'
+            pbar.close()
+        if msgs:
+            LOGGER.info('\n'.join(msgs))
+        x['hash'] = get_hash([x[0] for x in self.samples])
+        x['results'] = nf, nc, len(samples), samples
+        x['msgs'] = msgs  # warnings
+        save_dataset_cache_file(self.prefix, path, x)
+        return samples
+
+
+def load_dataset_cache_file(path):
+    """Load an Ultralytics *.cache dictionary from path."""
+    import gc
+    gc.disable()  # reduce pickle load time https://github.com/ultralytics/ultralytics/pull/1585
+    cache = np.load(str(path), allow_pickle=True).item()  # load dict
+    gc.enable()
+    return cache
+
+
+def save_dataset_cache_file(prefix, path, x):
+    """Save an Ultralytics dataset *.cache dictionary x to path."""
+    x['version'] = DATASET_CACHE_VERSION  # add cache version
+    if is_dir_writeable(path.parent):
+        if path.exists():
+            path.unlink()  # remove *.cache file if exists
+        np.save(str(path), x)  # save cache for next time
+        path.with_suffix('.cache.npy').rename(path)  # remove .npy suffix
+        LOGGER.info(f'{prefix}New cache created: {path}')
+    else:
+        LOGGER.warning(f'{prefix}WARNING ⚠️ Cache directory {path.parent} is not writeable, cache not saved.')
 
 
 # TODO: support semantic segmentation
