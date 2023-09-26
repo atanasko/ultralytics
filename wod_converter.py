@@ -102,75 +102,6 @@ def pcl_to_bev(pcl):
     return bev_map
 
 
-def vis_image_box(b_img, lidar_box):
-    cfg = config.load()
-    colormap = {1: "red", 2: "blue", 3: "yellow", 4: "yellow"}
-
-    # bev_img = cv2.rotate(b_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    bev_img = b_img
-    # bev_img = cv2.rotate(bev_img, cv2.ROTATE_90_CLOCKWISE)
-    # bev_img = cv2.rotate(bev_img, cv2.ROTATE_180)
-    img = Image.fromarray(bev_img).convert('RGB')
-
-    ##############################################
-    discrete = (cfg.range_x[1] - cfg.range_x[0]) / cfg.bev_width
-    bboxes = []
-    clss = []
-
-    for i, (object_id, object_type, x, size_x, y, size_y, yaw) in enumerate(zip(
-            lidar_box.key.laser_object_id, lidar_box.type, lidar_box.box.center.x, lidar_box.box.size.x,
-            lidar_box.box.center.y,
-            lidar_box.box.size.y, lidar_box.box.heading
-    )):
-        # Draw the object bounding box.
-        cos_yaw = np.cos(yaw)
-        sin_yaw = np.sin(yaw)
-
-        # x = x / discrete
-        # # y = (-y / discrete) + cfg.bev_width / 2
-        # y = (y / discrete) + cfg.bev_width / 2
-
-        x = x / discrete
-        y = (-y / discrete) + cfg.bev_width / 2
-
-        # if (x < 0 or x > 640) or (y < 0 or y > 640):
-        #     continue
-
-        size_x = size_x / discrete
-        size_y = size_y / discrete
-        #
-        # size_x = size_x * cos_yaw + size_y * sin_yaw
-        # size_y = - size_x * sin_yaw + size_y * cos_yaw
-
-        bboxes.append([x, y, size_x, size_y])
-        clss.append(object_type)
-    ##############################################
-
-    ax = plt.subplot()
-    # Iterate over the individual labels.
-    for j, (bbox, cls) in enumerate(zip(bboxes, clss)):
-        # Draw the object bounding box.
-        if j > 2:
-            continue
-        #
-        x = bbox[0]
-        y = bbox[1]
-        size_x = bbox[2]
-        size_y = bbox[3]
-        ax.add_patch(patches.Rectangle(
-            xy=(x - 0.5 * size_x,
-                y - 0.5 * size_y),
-            width=size_x,
-            height=size_y,
-            linewidth=1,
-            edgecolor=colormap[cls],
-            facecolor='none'))
-    #     # ax.add_patch(patches.Rectangle((50, 100), 40, 30, linewidth=1, edgecolor='r', facecolor='none'))
-
-    plt.imshow(img)
-    plt.show()
-
-
 def crop_bbox(x, y, size_x, size_y):
     if x - size_x / 2 < 0:
         if x < 0:
@@ -201,7 +132,6 @@ def crop_bbox(x, y, size_x, size_y):
 
 
 def create_label_list(lidar_box):
-    ##############################################
     discrete = (cfg.range_x[1] - cfg.range_x[0]) / cfg.bev_width
     bboxes = []
     clss = []
@@ -256,7 +186,6 @@ def convert(dataset_root_dir, dir):
                                                                   lidar_pose.range_image_return1, vehicle_pose)
             bev_img = pcl_to_bev(pcl)
             bev_img = cv2.rotate(bev_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            # vis_image_box(bev_img, lidar_box)
             img = Image.fromarray(bev_img).convert('RGB')
             img.save(dataset_root_dir + "/images/" + dir + os.sep + context_name + "_" + str(i) + ".png")
             clss, bboxes = create_label_list(lidar_box)
