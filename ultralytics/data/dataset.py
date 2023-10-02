@@ -258,17 +258,6 @@ class WodDataset(BaseDataset):
             im_files = im_files[:round(len(im_files) * self.fraction)]
         return im_files
 
-    # def load_image(self, i):
-    #     im = self.ims[i]
-    #     h0, w0 = im.shape[:2]  # orig hw
-    #     # Add to buffer if training with augmentations
-    #     if self.augment:
-    #         self.ims[i], self.im_hw0[i], self.im_hw[i] = im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
-    #         self.buffer.append(i)
-    #         if len(self.buffer) >= self.max_buffer_length:
-    #             j = self.buffer.pop(0)
-    #             self.ims[j], self.im_hw0[j], self.im_hw[j] = None, None, None
-
     def cache_images(self, cache):
         """Cache images to memory or disk."""
         b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
@@ -303,17 +292,11 @@ class WodDataset(BaseDataset):
                         b += self.npy_files[i].stat().st_size
                     else:  # 'ram'
                         self.ims[idx], self.im_hw0[idx], self.im_hw[idx] = bev_img, (640, 640), (
-                        640, 640)  # im, hw_orig, hw_resized = load_image(self, i)
+                            640, 640)  # im, hw_orig, hw_resized = load_image(self, i)
                         b += self.ims[idx].nbytes
                     idx += 1
                     pbar.desc = f'{self.prefix}Caching images ({b / gb:.1f}GB {cache})'
             pbar.close()
-
-    # def cache_images_to_disk(self, i):
-    #     """Saves an image as an *.npy file for faster loading."""
-    #     f = self.npy_files[i]
-    #     if not f.exists():
-    #         np.save(f.as_posix(), cv2.imread(self.im_files[i]))
 
     def check_cache_ram(self, safety_margin=0.5):
         """Check image caching requirements vs available memory."""
@@ -395,37 +378,68 @@ class WodDataset(BaseDataset):
 
         return bev_map
 
+    def crop_bbox(self, x, y, size_x, size_y):
+        if x - size_x / 2 < 0:
+            if x < 0:
+                size_x = x + size_x / 2
+            if x > 0:
+                size_x = (size_x / 2 - x) + size_x / 2
+            x = size_x / 2
+        if x + size_x / 2 > self.cfg.bev_width:
+            if x < self.cfg.bev_width:
+                size_x = (self.cfg.bev_width - x) + size_x / 2
+            if x > self.cfg.bev_width:
+                size_x = size_x / 2 - (x - self.cfg.bev_width)
+            x = self.cfg.bev_width - size_x / 2
+        if y - size_y / 2 < 0:
+            if y < 0:
+                size_y = y + size_y / 2
+            if y > 0:
+                size_y = (size_y / 2 - y) + size_y / 2
+            y = size_y / 2
+        if y + size_y / 2 > self.cfg.bev_height:
+            if y < self.cfg.bev_height:
+                size_y = (self.cfg.bev_height - y) + size_y / 2
+            if y > self.cfg.bev_height:
+                size_y = size_y / 2 - (y - self.cfg.bev_height)
+            y = self.cfg.bev_height - size_y / 2
+
+        return x, y, size_x, size_y
+
     def create_label(self, lidar, lidar_box):
         discrete = (self.cfg.range_x[1] - self.cfg.range_x[0]) / self.cfg.bev_width
         bboxes = []
+        clss = []
 
         for i, (object_id, object_type, x, size_x, y, size_y, yaw) in enumerate(zip(
                 lidar_box.key.laser_object_id, lidar_box.type, lidar_box.box.center.x, lidar_box.box.size.x,
                 lidar_box.box.center.y,
                 lidar_box.box.size.y, lidar_box.box.heading
         )):
-            # Draw the object bounding box.
-            cos_yaw = np.cos(yaw)
-            sin_yaw = np.sin(yaw)
-
             x = x / discrete
             y = (-y / discrete) + self.cfg.bev_width / 2
 
             size_x = size_x / discrete
             size_y = size_y / discrete
 
-            size_x = size_x * cos_yaw + size_y * sin_yaw
-            size_y = - size_x * sin_yaw + size_y * cos_yaw
+            if ((x + size_x / 2) < 0 or (x - size_x / 2) > self.cfg.bev_width) or (
+                    (y + + size_y / 2) < 0 or (y - size_y / 2) > self.cfg.bev_height):
+                continue
 
-            bboxes.append([x, y, size_x, size_y])
+            x, y, size_x, size_y = self.crop_bbox(x, y, size_x, size_y)
+
+            bboxes.append([x / self.cfg.bev_width, y / self.cfg.bev_height, size_x / self.cfg.bev_width,
+                           size_y / self.cfg.bev_height])
+            clss.append([object_type])
+
         return dict(
             im_file=lidar.key.segment_context_name + "#" + str(lidar.key.laser_name) + "#" + str(
                 lidar.key.frame_timestamp_micros),
             shape=(self.cfg.bev_width, self.cfg.bev_height),
             ori_shape=(self.cfg.bev_width, self.cfg.bev_height),
             resized_shape=(self.cfg.bev_width, self.cfg.bev_height),
-            cls=np.array(lidar_box.type).reshape(len(lidar_box.type), 1),  # n, 1
-            bboxes=np.array(bboxes),  # n, 4
+            cls=np.array(clss) if len(clss) != 0 else np.array([[]]).reshape((0, 1)),  # n, 1
+            bboxes=np.array(bboxes) if len(bboxes) != 0 else np.array([[]]).reshape((0, 4)),  # n, 4
             segments=[],
             # keypoints=None,
             normalized=True,
@@ -536,16 +550,6 @@ class WodDataset(BaseDataset):
             raise ValueError(f'All labels empty in {cache_path}, can not start training without labels. {HELP_URL}')
         return labels
 
-    # def get_image_and_label(self, index):
-    #     self.load_image(index)
-    #     """Get and return label information from the dataset."""
-    #     label = deepcopy(self.labels[index])  # requires deepcopy() https://github.com/ultralytics/ultralytics/pull/1948
-    #     label['ratio_pad'] = (label['resized_shape'][0] / label['ori_shape'][0],
-    #                           label['resized_shape'][1] / label['ori_shape'][1])  # for evaluation
-    #     if self.rect:
-    #         label['rect_shape'] = self.batch_shapes[self.batch[index]]
-    #     return self.update_labels_info(self.labels[index])
-
     def build_transforms(self, hyp=None):
         """Builds and appends transforms to the list."""
         if self.augment:
@@ -576,13 +580,14 @@ class WodDataset(BaseDataset):
         # NOTE: cls is not with bboxes now, classification and semantic segmentation need an independent cls label
         # we can make it also support classification and semantic segmentation by add or remove some dict keys there.
         bboxes = label.pop('bboxes')
+        if bboxes.size == 0:
+            np.reshape(bboxes, (0, 4))
         segments = label.pop('segments')
-        # keypoints = label.pop('keypoints', None)
-        keypoints = None
+        keypoints = label.pop('keypoints', None)
         bbox_format = label.pop('bbox_format')
         normalized = label.pop('normalized')
         # label['instances'] = Instances(bboxes, segments, keypoints, bbox_format=bbox_format, normalized=normalized)
-        label['instances'] = Instances(bboxes, segments, bbox_format=bbox_format, normalized=normalized)
+        label['instances'] = Instances(bboxes, segments, keypoints, bbox_format=bbox_format, normalized=normalized)
         return label
 
     def set_rectangle(self):

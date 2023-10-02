@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ultralytics.data import build_dataloader, build_yolo_dataset, converter
+from ultralytics.data import build_dataloader, build_yolo_dataset, build_wod_dataset, converter
 from ultralytics.engine.validator import BaseValidator
 from ultralytics.utils import LOGGER, ops
 from ultralytics.utils.checks import check_requirements
@@ -266,3 +266,18 @@ class DetectionValidator(BaseValidator):
             except Exception as e:
                 LOGGER.warning(f'pycocotools unable to run: {e}')
         return stats
+
+
+class WodDetectionValidator(DetectionValidator):
+
+    def build_dataset(self, img_path, mode='val', batch=None):
+        """
+        Build YOLO Dataset.
+
+        Args:
+            img_path (str): Path to the folder containing images.
+            mode (str): `train` mode or `val` mode, users are able to customize different augmentations for each mode.
+            batch (int, optional): Size of batches, this is for `rect`. Defaults to None.
+        """
+        gs = max(int(de_parallel(self.model).stride if self.model else 0), 32)
+        return build_wod_dataset(self.args, img_path, batch, self.data, mode=mode, stride=gs)

@@ -112,6 +112,7 @@ class DetectionTrainer(BaseTrainer):
     def plot_training_labels(self):
         """Create a labeled training plot of the YOLO model."""
         boxes = np.concatenate([lb['bboxes'] for lb in self.train_loader.dataset.labels], 0)
+        print(boxes)
         cls = np.concatenate([lb['cls'] for lb in self.train_loader.dataset.labels], 0)
         plot_labels(boxes, cls.squeeze(), names=self.data['names'], save_dir=self.save_dir, on_plot=self.on_plot)
 
@@ -128,3 +129,14 @@ class WodDetectionTrainer(DetectionTrainer):
         """
         gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
         return build_wod_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == 'val', stride=gs)
+
+    def get_validator(self):
+        """Returns a DetectionValidator for YOLO model validation."""
+        self.loss_names = 'box_loss', 'cls_loss', 'dfl_loss'
+        return yolo.detect.WodDetectionValidator(self.test_loader, save_dir=self.save_dir, args=copy(self.args))
+
+    def plot_training_labels(self):
+        """Create a labeled training plot of the YOLO model."""
+        boxes = np.concatenate([lb['bboxes'] for lb in self.train_loader.dataset.labels], 0)
+        cls = np.concatenate([lb['cls'] for lb in self.train_loader.dataset.labels], 0)
+        plot_labels(boxes, cls.squeeze(), names=self.data['names'], save_dir=self.save_dir, on_plot=self.on_plot)

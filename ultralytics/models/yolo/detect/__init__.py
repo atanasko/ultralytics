@@ -2,6 +2,6 @@
 
 from .predict import DetectionPredictor
 from .train import DetectionTrainer, WodDetectionTrainer
-from .val import DetectionValidator
+from .val import DetectionValidator, WodDetectionValidator
 
-__all__ = 'DetectionPredictor', 'DetectionTrainer', 'DetectionValidator', 'WodDetectionTrainer'
+__all__ = 'DetectionPredictor', 'DetectionTrainer', 'DetectionValidator', 'WodDetectionTrainer', 'WodDetectionValidator'
