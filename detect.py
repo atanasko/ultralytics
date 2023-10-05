@@ -2,7 +2,7 @@ from PIL import Image
 from ultralytics import YOLO
 
 # Load a pretrained YOLOv8n model
-model = YOLO('/data/DEVELOPMENT/AUTONOMOUS/project/ultralytics/runs/detect/train35/weights/best.pt')
+model = YOLO('/data/DEVELOPMENT/AUTONOMOUS/project/ultralytics/runs/detect/train/weights/best.pt')
 # model = YOLO('/data/DEVELOPMENT/AUTONOMOUS/project/ultralytics/runs/detect/train/weights/last.pt')
 
 # Run inference on 'bus.jpg'

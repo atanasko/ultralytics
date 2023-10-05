@@ -1,22 +1,21 @@
 # Ultralytics YOLO 🚀, GPL-3.0 license
 # Example usage: python train.py
 # ultralitics
-# ├── ultralitics
-# |       └── datasets
-# |              └── wod1.yaml
-# └── wod1
-#      ├── images
-#      └── labels
+#      ├── ultralitics
+#      |       └── cfg
+#      |            └──datasets
+#      |                  └── wod.yaml
+#      └── datasets
+#             └──wod
+#                 ├── config
+#                 └── data
+#                 └── utils
 
 
-# Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
 path: wod/data  # dataset root dir
-#train: training # train images (relative to 'path') 128 images
-#test: testing # test images (optional)
-#val: validation # val images (relative to 'path') 128 images
-train: training # train images (relative to 'path') 128 images
-test: training # test images (optional)
-val: validation # val images (relative to 'path') 128 images
+train: training # train wod subdirectory
+test: training # test wod subdirectory
+val: validation # val wod subdirectory
 
 
 # Classes
