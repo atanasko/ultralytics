@@ -28,6 +28,13 @@ def read_lidar_df(dataset_dir: str, context_name: str, laser_name: int):
     return lidar_df
 
 
+def read_lidar_box_df(dataset_dir: str, context_name: str, laser_name: int):
+    lidar_box_df = read_df(dataset_dir, context_name, 'lidar_box')
+    # lidar_box_df = lidar_box_df[lidar_box_df['key.laser_object_id'] == laser_name]
+
+    return lidar_box_df
+
+
 def read_lidar_lidar_box_df(dataset_dir: str, context_name: str, laser_name: int):
     lidar_df = read_df(dataset_dir, context_name, 'lidar')
     lidar_box_df = read_df(dataset_dir, context_name, 'lidar_box')

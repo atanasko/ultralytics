@@ -159,25 +159,29 @@ def create_label_list(lidar_box):
     return clss, bboxes
 
 
-def convert(dataset_root_dir, dir):
+def convert(dataset_root_dir, dir, testing=False):
     dataset_dir = dataset_root_dir + "/data/" + dir
     context_names = [os.path.splitext(os.path.basename(name))[0] for name in glob.glob(dataset_dir + "/lidar/*.*")]
     laser_name = 1
     pbar = tqdm(context_names, total=len(context_names), disable=LOCAL_RANK > 0)
     for context_name in pbar:
-        lidar_lidar_box_df = wod_reader.read_lidar_lidar_box_df(dataset_dir, context_name, laser_name)
-        lidar_calibration_df = wod_reader.read_lidar_calibration_df(dataset_dir, context_name,
-                                                                    laser_name)
+        lidar_df = wod_reader.read_lidar_df(dataset_dir, context_name, laser_name)
+        lidar_box_df = wod_reader.read_lidar_box_df(dataset_dir, context_name, laser_name)
+        lidar_calibration_df = wod_reader.read_lidar_calibration_df(dataset_dir, context_name, laser_name)
         lidar_pose_df = wod_reader.read_lidar_pose_df(dataset_dir, context_name, laser_name)
         vehicle_pose_df = wod_reader.read_vehicle_pose_df(dataset_dir, context_name)
 
-        df = lidar_lidar_box_df.merge(lidar_calibration_df)
+        df = lidar_df[lidar_df['key.laser_name'] == laser_name]
+        if not testing:
+            df = v2.merge(df, lidar_box_df, right_group=True)
+        df = v2.merge(df, lidar_calibration_df)
         df = v2.merge(df, lidar_pose_df)
         df = v2.merge(df, vehicle_pose_df)
 
         for i, (_, r) in enumerate(df.iterrows()):
             lidar = v2.LiDARComponent.from_dict(r)
-            lidar_box = v2.LiDARBoxComponent.from_dict(r)
+            if not testing:
+                lidar_box = v2.LiDARBoxComponent.from_dict(r)
             lidar_calibration = v2.LiDARCalibrationComponent.from_dict(r)
             lidar_pose = v2.LiDARPoseComponent.from_dict(r)
             vehicle_pose = v2.VehiclePoseComponent.from_dict(r)
@@ -188,10 +192,12 @@ def convert(dataset_root_dir, dir):
             bev_img = cv2.rotate(bev_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
             img = Image.fromarray(bev_img).convert('RGB')
             img.save(dataset_root_dir + "/images/" + dir + os.sep + context_name + "_" + str(i) + ".png")
-            clss, bboxes = create_label_list(lidar_box)
-            with open(dataset_root_dir + "/labels/" + dir + os.sep + context_name + "_" + str(i) + ".txt", 'w') as f:
-                for j, (cls, bbox) in enumerate(zip(clss, bboxes)):
-                    f.write(str(cls) + ' ' + ' '.join(str(e) for e in bbox) + "\n")
+            if not testing:
+                clss, bboxes = create_label_list(lidar_box)
+                with open(dataset_root_dir + "/labels/" + dir + os.sep + context_name + "_" + str(i) + ".txt",
+                          'w') as f:
+                    for j, (cls, bbox) in enumerate(zip(clss, bboxes)):
+                        f.write(str(cls) + ' ' + ' '.join(str(e) for e in bbox) + "\n")
 
 
 def main():
@@ -203,7 +209,7 @@ def main():
     prepare_yolov8_input_dir(args.path)
     convert(args.path, "training")
     convert(args.path, "validation")
-    convert(args.path, "testing")
+    convert(args.path, "testing", True)
 
 
 if __name__ == '__main__':
