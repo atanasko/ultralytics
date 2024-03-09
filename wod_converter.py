@@ -1,23 +1,18 @@
+import math
 import os
 import sys
 import argparse
 import logging
 from tqdm import tqdm
 import glob
-
 import cv2
 import numpy as np
-import torch
-import torchvision
+from PIL import Image
 
 import ultralytics.utils.wod_reader as wod_reader
 import ultralytics.datasets.wod.config.config as config
 from waymo_open_dataset import v2
 from waymo_open_dataset.v2.perception.utils import lidar_utils as _lidar_utils
-
-import matplotlib.pyplot as plt
-from PIL import Image
-import matplotlib.patches as patches
 
 LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))
 cfg = config.load()
@@ -131,6 +126,35 @@ def crop_bbox(x, y, size_x, size_y):
     return x, y, size_x, size_y
 
 
+def rotate_point(x, y, cx, cy, theta):
+    # Rotate point (x, y) around center (cx, cy) by angle (in radians)
+    x_rel = x - cx
+    y_rel = y - cy
+    x_new = x_rel * math.cos(theta) - y_rel * math.sin(theta) + cx
+    y_new = x_rel * math.sin(theta) + y_rel * math.cos(theta) + cy
+    return x_new, y_new
+
+
+def calculate_rotated_bbox_coordinates(cx, cy, width, height, theta):
+    # Calculate the coordinates of the four corners of the rectangle
+    x1 = cx - width / 2
+    y1 = cy - height / 2
+    x2 = cx + width / 2
+    y2 = cy - height / 2
+    x3 = cx + width / 2
+    y3 = cy + height / 2
+    x4 = cx - width / 2
+    y4 = cy + height / 2
+
+    # Rotate the four corners around the center
+    x1_new, y1_new = rotate_point(x1, y1, cx, cy, theta)
+    x2_new, y2_new = rotate_point(x2, y2, cx, cy, theta)
+    x3_new, y3_new = rotate_point(x3, y3, cx, cy, theta)
+    x4_new, y4_new = rotate_point(x4, y4, cx, cy, theta)
+
+    return x1_new, y1_new, x2_new, y2_new, x3_new, y3_new, x4_new, y4_new
+
+
 def create_label_list(lidar_box):
     discrete = (cfg.range_x[1] - cfg.range_x[0]) / cfg.bev_width
     bboxes = []
@@ -152,15 +176,19 @@ def create_label_list(lidar_box):
             continue
 
         x, y, size_x, size_y = crop_bbox(x, y, size_x, size_y)
+        x1, y1, x2, y2, x3, y3, x4, y4 = calculate_rotated_bbox_coordinates(x, y, size_x, size_y, -yaw)
 
-        bboxes.append([x / cfg.bev_width, y / cfg.bev_height, size_x / cfg.bev_width, size_y / cfg.bev_height])
+        bboxes.append(
+            [x1 / cfg.bev_width, y1 / cfg.bev_height, x2 / cfg.bev_width, y2 / cfg.bev_height, x3 / cfg.bev_width,
+             y3 / cfg.bev_height, x4 / cfg.bev_width, y4 / cfg.bev_height])
         clss.append(object_type)
 
     return clss, bboxes
 
 
-def convert(dataset_root_dir, dir, testing=False):
-    dataset_dir = dataset_root_dir + "/data/" + dir
+def convert(dataset_root_dir, output_dir, dir, testing=False):
+    # dataset_dir = dataset_root_dir + "/data/" + dir
+    dataset_dir = dataset_root_dir + "/" + dir
     context_names = [os.path.splitext(os.path.basename(name))[0] for name in glob.glob(dataset_dir + "/lidar/*.*")]
     laser_name = 1
     pbar = tqdm(context_names, total=len(context_names), disable=LOCAL_RANK > 0)
@@ -191,10 +219,10 @@ def convert(dataset_root_dir, dir, testing=False):
             bev_img = pcl_to_bev(pcl)
             bev_img = cv2.rotate(bev_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
             img = Image.fromarray(bev_img).convert('RGB')
-            img.save(dataset_root_dir + "/images/" + dir + os.sep + context_name + "_" + str(i) + ".png")
+            img.save(output_dir + "/images/" + dir + os.sep + context_name + "_" + str(i) + ".png")
             if not testing:
                 clss, bboxes = create_label_list(lidar_box)
-                with open(dataset_root_dir + "/labels/" + dir + os.sep + context_name + "_" + str(i) + ".txt",
+                with open(output_dir + "/labels/" + dir + os.sep + context_name + "_" + str(i) + ".txt",
                           'w') as f:
                     for j, (cls, bbox) in enumerate(zip(clss, bboxes)):
                         f.write(str(cls) + ' ' + ' '.join(str(e) for e in bbox) + "\n")
@@ -202,14 +230,14 @@ def convert(dataset_root_dir, dir, testing=False):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--path', help="PATH is dataset root dir path")
-    # parser.add_argument('-v', dest='verbose', action='store_true')
+    parser.add_argument('-w', '--wod_dataset', help="WOD dataset root dir path")
+    parser.add_argument('-o', '--pc_obb_dataset', help="Output PC OBB dataset root dir path")
     args = parser.parse_args(args=None if sys.argv[1:] else ['--help'])
 
-    prepare_yolov8_input_dir(args.path)
-    convert(args.path, "training")
-    convert(args.path, "validation")
-    convert(args.path, "testing", True)
+    prepare_yolov8_input_dir(args.pc_obb_dataset)
+    convert(args.wod_dataset, args.pc_obb_dataset, "training")
+    convert(args.wod_dataset, args.pc_obb_dataset, "validation")
+    convert(args.wod_dataset, args.pc_obb_dataset, "testing", True)
 
 
 if __name__ == '__main__':

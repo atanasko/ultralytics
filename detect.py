@@ -2,11 +2,9 @@ from PIL import Image
 from ultralytics import YOLO
 
 # Load a pretrained YOLOv8n model
-model = YOLO('/data/DEVELOPMENT/AUTONOMOUS/project/ultralytics/runs/detect/train/weights/best.pt')
-# model = YOLO('/data/DEVELOPMENT/AUTONOMOUS/project/ultralytics/runs/detect/train/weights/last.pt')
+model = YOLO('runs/obb/train4/weights/best.pt')
 
-# Run inference on 'bus.jpg'
-results = model('/data/DEVELOPMENT/AUTONOMOUS/project/ultralytics/img.png')  # results list
+results = model('/pc_obb_dataset/images/testing/10980133015080705026_780_000_800_000_0.png')  # results list
 
 # Show the results
 for r in results:
