@@ -13,7 +13,7 @@ vid_writer = cv2.VideoWriter(video_filename, codec, 30, (640, 640))
 # Run inference
 for i in range(198):
     results = model(
-        'pc_obb_dataset/images/testing/2601205676330128831_4880_000_4900_000_' + str(i) + '.png',
+        '/data/DEVELOPMENT/DATA/pc_obb_dataset/images/testing/2601205676330128831_4880_000_4900_000_' + str(i) + '.png',
         show_labels=False)  # results list
 
     # Show the results
